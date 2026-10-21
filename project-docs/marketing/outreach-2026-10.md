@@ -73,3 +73,41 @@ Title: Show HN: Breathing Autostart, starts Nanit baby breathing monitoring on i
 > Nanit's camera can track a baby's breathing motion through a patterned band, but a parent has to open the app and tap Start every nap and bedtime, and the session ends with a chime when the baby is picked up. This Electron app watches the camera's own status socket and a low-rate video read, starts monitoring when the baby is put down, and stops it when the baby is lifted out, before the camera's own end-of-session alerts. Signed and notarized on Mac, tested in CI by installing the real DMG/EXE and driving it against a fake Nanit service. MIT licensed.
 >
 > https://github.com/jackwallner/nanit-breathing-autostart
+
+### Nanit forum reply (threads 4263 and 476, sessions ending overnight)
+
+> This happens to us too. It won't fix the camera losing the band, but one thing that helped: I wrote a small free Mac and Windows app that watches the camera and starts monitoring for you. If a session ends while the baby is still in the crib, it looks for the band again and starts a new session when it finds it (within 15 minutes, sooner if the baby moves). It also starts monitoring when the baby is put down and stops it when they're lifted out, so nobody has to tap the lungs icon.
+>
+> It's unofficial (not from Nanit), free, open source, and your sign-in stays on your computer. The computer has to stay on. Not a medical device.
+>
+> https://jackwallner.com/breathing-autostart/
+
+### Nanit forum reply (thread 6155, the "monitoring stopped" chime)
+
+> Not a Nanit setting, but I had the same problem with dream feeds. I wrote a free Mac and Windows app that starts and stops breathing monitoring for you, and it has an option to silence the camera's chime. It also stops the session when the baby is lifted out, so the "Monitoring stopped" pop-ups don't go off on every phone.
+>
+> It's unofficial, open source, and your sign-in stays on your computer. The computer has to stay on.
+>
+> https://jackwallner.com/breathing-autostart/
+
+### Home Assistant forum reply ("Nanit Baby Monitor Integration" thread)
+
+> Sharing in case it's useful to anyone here with Breathing Wear: I built an open-source app that starts and stops Nanit Breathing Motion monitoring automatically.
+>
+> It talks to the camera over the same protobuf websocket as the projects in this thread, reads the camera's own breathing status, and pulls a low-rate frame now and then through ffmpeg to notice when the baby is put down. When it sees that, it asks the camera's own Breathing Wear finder to look and starts a session if the band is found. It stops the session when the camera reports the baby out of bed, or the band has been out of view for 8 minutes (the camera ends it with phone alerts at about 10). Sign-in is Nanit's normal email, password and code flow; only the refresh token is kept, encrypted.
+>
+> It's an Electron app for Mac and Windows rather than a HA integration, so it's for people who just want it working. The engine in `src/engine/` is plain Node with no Electron imports, if anyone wants to lift the start/stop logic into an add-on.
+>
+> https://github.com/jackwallner/nanit-breathing-autostart
+
+### Reply template for parent subreddits (r/daddit, r/NewParents, r/beyondthebump)
+
+Only as a reply to someone asking about the Nanit breathing band, forgetting to start it, or the "monitoring stopped" alerts. Check each sub's rules first; skip any that ban links to your own project.
+
+> We had the same thing with the Nanit band, especially forgetting to start it for naps. I ended up making a free app for Mac or Windows that starts the breathing monitoring when the baby's put down and stops it when you pick them up, so you never tap the lungs icon. Unofficial, open source, and the computer has to stay on. https://jackwallner.com/breathing-autostart/ (not a medical device, just saves the tapping)
+
+### Reply template for What to Expect, BabyCenter and Facebook parent groups
+
+Same rule: reply to an existing Nanit question only. These sites often hold or strip links from new accounts, so the text works without the link too.
+
+> If you have a computer that stays on at home, there's a free app called Breathing Autostart that starts Nanit's breathing monitoring by itself when the baby's put down and stops it when they're picked up. I made it after forgetting to start it one too many times. Search "Breathing Autostart Nanit" or go to jackwallner.com/breathing-autostart. It's not from Nanit and it's not a medical device, it just saves the tapping.
