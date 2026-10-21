@@ -83,3 +83,77 @@ test("sign in with Nanit's code, start when the band is in view, stop when the b
     await fake.close();
   }
 });
+
+async function signedIn(fake, extra = {}) {
+  let tokens = null;
+  const store = { loadTokens: () => tokens, saveTokens: (pair) => { tokens = pair; }, clearTokens: () => { tokens = null; } };
+  let view = null;
+  const service = createService({
+    store, endpoints: fake.endpoints, ffmpegBin: ffmpegPath(), timing: FAST,
+    settings: () => ({ enabled: () => true, holdAfterParentStop: true, silenceChime: false }),
+    videoInput: () => ["-re", "-stream_loop", "-1", "-i", clip],
+    onUpdate: (v) => { view = v; }, ...extra,
+  });
+  await service.signIn("parent@example.com", PASSWORD);
+  await service.submitCode(CODE);
+  return { service, view: () => view, tokens: () => tokens, store };
+}
+
+test("a dropped camera connection reconnects and the running session carries on; waking from sleep reconnects at once", { timeout: 60_000 }, async () => {
+  const fake = await startFakeNanit();
+  const { service, view } = await signedIn(fake);
+  try {
+    await until("the camera connection", () => view().babies[0].phase === "watching");
+    fake.parentStart();
+    await until("monitoring", () => view().babies[0].phase === "monitoring");
+    const startedAt = view().babies[0].startedAt;
+    const before = fake.connections;
+    fake.dropSockets();
+    await until("a reconnect", () => fake.connections > before && view().babies[0].phase === "monitoring");
+    assert.equal(view().babies[0].startedAt, startedAt, "same session, same start time");
+    assert.equal(view().activity.filter((a) => /started in the Nanit app/.test(a.text)).length, 1);
+
+    const awake = fake.connections;
+    service.wake();
+    await until("a reconnect after waking", () => fake.connections > awake && view().babies[0].phase === "monitoring", 3_000);
+
+    // Stopped in Nanit while the connection was down: still seen as ended.
+    fake.dropSockets();
+    fake.parentStop();
+    await until("watching again", () => view().babies[0].phase === "watching");
+    assert.ok(view().activity.some((a) => /stopped in the Nanit app/.test(a.text)));
+  } finally {
+    service.dispose();
+    await fake.close();
+  }
+});
+
+test("signing out while the app is still connecting leaves nothing running", { timeout: 30_000 }, async () => {
+  const fake = await startFakeNanit();
+  const { service, view, tokens, store } = await signedIn(fake);
+  try {
+    await until("the camera connection", () => fake.sockets.size === 1);
+    service.dispose();
+    await until("disconnected", () => fake.sockets.size === 0);
+    // A fresh launch with the saved sign-in, signed out before Nanit answers.
+    const saved = tokens();
+    const again = createService({
+      store: { ...store, loadTokens: () => saved, clearTokens: () => {} }, endpoints: fake.endpoints, ffmpegBin: ffmpegPath(), timing: FAST,
+      settings: () => ({ enabled: () => true }), videoInput: () => ["-re", "-i", clip],
+    });
+    fake.delay = 400;
+    const resuming = again.resume();
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    again.signOut();
+    await resuming;
+    await new Promise((resolve) => setTimeout(resolve, 1_000));
+    assert.equal(again.view().account, "signed-out");
+    assert.equal(again.view().babies.length, 0);
+    assert.equal(fake.sockets.size, 0);
+    again.dispose();
+  } finally {
+    service.dispose();
+    await fake.close();
+  }
+  void view;
+});

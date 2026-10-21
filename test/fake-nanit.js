@@ -32,6 +32,8 @@ export async function startFakeNanit() {
     status: { state: "OFF", breathing: null, bpm: null, sessionId: null },
     starts: [], stops: [], chimes: [], streams: [], finds: 0, logins: [],
     sockets: new Set(),
+    connections: 0,
+    delay: 0, // ms before /user and /babies answer
   };
   let counter = 0;
   const mint = () => {
@@ -65,6 +67,7 @@ export async function startFakeNanit() {
       return json(res, 201, mint());
     }
     if (!authed(req)) return json(res, 401, {});
+    if (["/user", "/babies"].includes(url.pathname) && fake.delay) await new Promise((resolve) => setTimeout(resolve, fake.delay));
     if (url.pathname === "/user") return json(res, 200, { user: { id: 42, first_name: "Test", last_name: "Parent", email: "parent@example.com" } });
     if (url.pathname === "/babies") return json(res, 200, { babies: [{ uid: "b1", name: "Hazel", camera: { uid: "c1" } }] });
     if (url.pathname === "/babies/b1/events") return json(res, 200, { events: [] });
@@ -81,6 +84,7 @@ export async function startFakeNanit() {
     if (req.url !== "/cameras/c1/user_connect" || !authed(req)) { socket.write("HTTP/1.1 401 Unauthorized\r\n\r\n"); socket.destroy(); return; }
     wss.handleUpgrade(req, socket, head, (ws) => {
       fake.sockets.add(ws);
+      fake.connections++;
       ws.on("close", () => fake.sockets.delete(ws));
       ws.on("message", (data) => {
         const message = bmm.fields(new Uint8Array(data));
@@ -127,6 +131,8 @@ export async function startFakeNanit() {
   fake.babyOut = () => fake.push({ ...fake.status, breathing: "BABY_NOT_IN_BED" });
   fake.parentStart = () => fake.push({ state: "RUNNING", breathing: "NORMAL", bpm: 40, sessionId: "parent1" });
   fake.parentStop = () => fake.push({ state: "COMPLETED", breathing: null, bpm: null, sessionId: fake.status.sessionId });
+  // The connection dies without a goodbye, like after a sleep or a network change.
+  fake.dropSockets = () => { for (const ws of fake.sockets) ws.terminate(); };
   fake.revokeAll = () => { fake.tokens.clear(); fake.refreshTokens.clear(); for (const ws of fake.sockets) ws.close(); };
 
   await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));

@@ -175,3 +175,30 @@ test("what the window shows: problems first, then connection, session and autost
   assert.equal(problem({ failures, lastCameraAt: T }, T + PROBLEM_FOR).stage, "watch");
   assert.equal(problem({ failures: {}, connectedAt: T, lastCameraAt: T }, T + CAMERA_SILENCE).stage, "camera connection");
 });
+
+test("a dropped camera connection mid-session is the same session carrying on, not a new start (4 assertions)", () => {
+  const s = { status: off("OFF"), ourStart: "abc" };
+  assert.equal(observe(s, running("NORMAL"), T), "started");
+  s.status = null; // the socket closed
+  assert.equal(observe(s, running("NORMAL"), T + 3_600_000), null);
+  assert.equal(s.startedAt, T);
+  // Picked up a minute after the reconnect: an hour-long session, so no false-start back-off.
+  observe(s, off("COMPLETED"), T + 3_660_000);
+  assert.equal(s.backoffUntil, undefined);
+});
+
+test("a session that ended while the connection was down still counts as ended (3 assertions)", () => {
+  const s = { status: off("OFF"), ourStart: "abc", ourStop: null };
+  observe(s, running("NORMAL"), T);
+  s.status = null;
+  assert.equal(observe(s, off("COMPLETED"), T + 600_000), "stopped by a parent");
+  assert.equal(s.endedAt, T + 600_000);
+  assert.equal(observe(s, off("COMPLETED"), T + 700_000), null);
+});
+
+test("a new session seen after a reconnect is a new start (1 assertion)", () => {
+  const s = { status: off("OFF"), ourStart: "abc" };
+  observe(s, running("NORMAL", "abc"), T);
+  s.status = null;
+  assert.equal(observe(s, running("NORMAL", "xyz"), T + 600_000), "started");
+});

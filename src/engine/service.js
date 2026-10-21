@@ -15,6 +15,7 @@ export function createService({ store, endpoints, ffmpegBin, videoInput, timing 
   const monitors = new Map();
   let pending = null; // email, password and mfa token between the two sign-in steps, in memory only
   let setupTimer = null;
+  let generation = 0; // bumped on sign-out, so a setup still in flight from before then stops
   const tokenStore = { load: async () => store.loadTokens(), save: async (pair) => store.saveTokens(pair) };
   const token = nanitTokens({ api: endpoints.api, store: tokenStore });
 
@@ -53,6 +54,7 @@ export function createService({ store, endpoints, ffmpegBin, videoInput, timing 
   };
 
   const stopMonitors = () => {
+    generation++;
     for (const monitor of monitors.values()) monitor.dispose();
     monitors.clear();
     problems.clear();
@@ -73,8 +75,11 @@ export function createService({ store, endpoints, ffmpegBin, videoInput, timing 
   // Finds the babies and starts their monitors. Retries every minute while Nanit can't be reached.
   const setup = async () => {
     clearTimeout(setupTimer);
+    stopMonitors();
+    const mine = generation;
     try {
       const [{ user }, { babies = [] }] = await Promise.all([api("/user"), api("/babies")]);
+      if (mine !== generation) return;
       state.user = { id: user.id, name: [user.first_name, user.last_name].filter(Boolean).join(" ") || null, email: user.email ?? null };
       state.babies = babies.filter((b) => b.camera?.uid).map((b) => ({ uid: b.uid, name: b.name || "Baby", camera: { uid: b.camera.uid } }));
       state.setup = state.babies.length ? null : "No Nanit camera on this account yet. Set one up in the Nanit app, then reopen this app.";
@@ -85,9 +90,11 @@ export function createService({ store, endpoints, ffmpegBin, videoInput, timing 
           onChange, onActivity: addActivity, onSignedOut: signedOut });
         monitors.set(baby.uid, monitor);
         await monitor.start();
+        if (mine !== generation) return;
       }
       log("ready", { babies: state.babies.length });
     } catch (error) {
+      if (mine !== generation) return;
       if (error instanceof SignedOutError) return signedOut(error);
       log("setup failed", { error: String(error?.message ?? error).slice(0, 300) });
       state.account = "signed-in";
@@ -154,6 +161,11 @@ export function createService({ store, endpoints, ffmpegBin, videoInput, timing 
     refresh() {
       for (const monitor of monitors.values()) monitor.refresh();
       update();
+    },
+    // The computer woke from sleep.
+    wake() {
+      for (const monitor of monitors.values()) monitor.wake();
+      if (state.account === "signed-in" && state.setup && !monitors.size) setup();
     },
     get active() { return state.account === "signed-in" && state.babies.some((b) => settings().enabled(b.uid)); },
     dispose: stopMonitors,

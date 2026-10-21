@@ -3,6 +3,7 @@ const $ = (id) => document.getElementById(id);
 const api = window.autostart;
 let state = null;
 let showingSettings = false;
+let pending = null; // "sign-in" or "code" while Nanit is being asked; keeps the button busy
 
 const time = (at) => new Date(at).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
 const day = (at) => {
@@ -77,20 +78,19 @@ function render() {
 
   if (state.account === "signed-out") {
     show("view-sign-in");
-    $("sign-in-error").hidden = !state.error;
+    $("sign-in-error").hidden = !state.error || pending === "sign-in";
     $("sign-in-error").textContent = state.error ?? "";
-    $("sign-in-button").disabled = false;
-    $("sign-in-button").textContent = "Sign in with Nanit";
+    $("sign-in-button").disabled = pending === "sign-in";
+    $("sign-in-button").textContent = pending === "sign-in" ? "Signing in..." : "Sign in with Nanit";
     return;
   }
   if (state.account === "needs-code") {
     show("view-code");
-    $("code-error").hidden = !state.error;
+    $("code-error").hidden = !state.error || pending === "code";
     $("code-error").textContent = state.error ?? "";
-    $("code-button").disabled = false;
-    $("code-button").textContent = "Continue";
-    if (state.error) $("code").select();
-    else if (document.activeElement !== $("code")) $("code").focus();
+    $("code-button").disabled = pending === "code";
+    $("code-button").textContent = pending === "code" ? "Checking..." : "Continue";
+    if (document.activeElement !== $("code")) $("code").focus();
     return;
   }
   if (showingSettings) {
@@ -109,19 +109,21 @@ function render() {
   renderActivity();
 }
 
+const ask = (what, call, clear) => {
+  pending = what;
+  if (state) render();
+  $(`${what}-error`).hidden = true;
+  call().finally(() => { pending = null; clear(); if (state) render(); });
+};
 $("sign-in-form").addEventListener("submit", (event) => {
   event.preventDefault();
-  $("sign-in-button").disabled = true;
-  $("sign-in-button").textContent = "Signing in...";
-  $("sign-in-error").hidden = true;
-  api.signIn($("email").value, $("password").value).finally(() => { $("password").value = ""; });
+  if (pending) return;
+  ask("sign-in", () => api.signIn($("email").value, $("password").value), () => { $("password").value = ""; });
 });
 $("code-form").addEventListener("submit", (event) => {
   event.preventDefault();
-  $("code-button").disabled = true;
-  $("code-button").textContent = "Checking...";
-  $("code-error").hidden = true;
-  api.code($("code").value).finally(() => { $("code").value = ""; });
+  if (pending) return;
+  ask("code", () => api.code($("code").value), () => { $("code").value = ""; });
 });
 $("code-back").addEventListener("click", () => api.cancelSignIn());
 $("open-settings").addEventListener("click", () => { showingSettings = !showingSettings; render(); });

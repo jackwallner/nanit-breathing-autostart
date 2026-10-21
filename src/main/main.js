@@ -4,7 +4,7 @@ import { uptime } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { app, BrowserWindow, ipcMain, Menu, nativeImage, Notification, powerSaveBlocker, safeStorage, shell, Tray } from "electron";
+import { app, BrowserWindow, ipcMain, Menu, nativeImage, Notification, powerMonitor, powerSaveBlocker, safeStorage, shell, Tray } from "electron";
 import updater from "electron-updater";
 
 import { NANIT } from "../engine/endpoints.js";
@@ -25,7 +25,9 @@ const endpoints = TEST && process.env.BA_TEST_ENDPOINTS ? JSON.parse(process.env
 const timing = TEST && process.env.BA_TEST_TIMING ? { ...TIMING, ...JSON.parse(process.env.BA_TEST_TIMING) } : TIMING;
 const videoInput = TEST && process.env.BA_TEST_VIDEO ? () => ["-re", "-stream_loop", "-1", "-i", process.env.BA_TEST_VIDEO] : undefined;
 
-if (!app.requestSingleInstanceLock()) app.quit();
+// A second copy would watch the same cameras, so it just shows the first one's window and leaves.
+const FIRST = app.requestSingleInstanceLock();
+if (!FIRST) app.quit();
 if (process.platform === "win32") app.setAppUserModelId("com.jackwallner.breathingautostart");
 
 let win = null, tray = null, store = null, service = null, quitting = false, blocker = null;
@@ -199,9 +201,13 @@ function registerIpc() {
 app.on("second-instance", showWindow);
 app.on("activate", showWindow);
 app.on("before-quit", () => { quitting = true; });
+// Stops the camera connections and ffmpeg readers, so nothing outlives the app (on Windows a
+// leftover ffmpeg.exe would also block an update from replacing it).
+app.on("will-quit", () => service?.dispose());
 app.on("window-all-closed", (event) => event.preventDefault?.());
 
 app.whenReady().then(async () => {
+  if (!FIRST) return;
   const crypto = !TEST && safeStorage.isEncryptionAvailable()
     ? { encrypt: (text) => safeStorage.encryptString(text), decrypt: (buffer) => safeStorage.decryptString(buffer) }
     : null;
@@ -228,6 +234,8 @@ app.whenReady().then(async () => {
   const signedIn = Boolean(store.loadTokens());
   createWindow({ show: !(atLogin && signedIn) });
   if (((atLogin && signedIn) || HIDDEN_TEST) && process.platform === "darwin") app.dock?.hide();
+
+  powerMonitor.on("resume", () => { store.log("resumed"); service.wake(); });
 
   applyLoginItem();
   setupUpdates();

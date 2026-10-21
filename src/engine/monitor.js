@@ -57,22 +57,28 @@ export function difference(a, b) {
 export function observe(s, status, now) {
   const wasLive = bmm.LIVE.has(s.status?.state);
   const live = bmm.LIVE.has(status.state);
+  // After a reconnect the status is unknown until the camera answers, so the session last heard
+  // of (s.liveSession) says whether this is the same session carrying on or a new one.
+  const resumed = !wasLive && s.liveSession != null && (status.sessionId ?? s.liveSession) === s.liveSession;
   s.status = status;
   if (live) {
     s.sessionId = status.sessionId ?? s.sessionId;
     if (SEARCHING.has(status.breathing)) s.searchingSince ??= now;
     else if (status.breathing) s.searchingSince = null;
     if (status.breathing === "NORMAL") s.sawBreathing = true;
-    if (!wasLive) {
+    if (!wasLive && !resumed) {
       s.startedAt = now;
       s.sawBreathing = status.breathing === "NORMAL";
+      s.liveSession = s.sessionId;
       if (s.sessionId !== s.ourStart) s.startPoint = null; // a parent's session: its point is unknown
       return "started";
     }
+    s.liveSession = s.sessionId;
     return null;
   }
   s.searchingSince = null;
-  if (!wasLive) return null;
+  if (!wasLive && s.liveSession == null) return null;
+  s.liveSession = null; // ended, perhaps while the connection was down
   const ended = s.sessionId;
   s.endedAt = now;
   // Ended within minutes of our start (held over the bed, say), or never picked up breathing:
@@ -150,6 +156,7 @@ export function createMonitor({ baby, userId, endpoints, token, ffmpegBin, video
   const s = { status: null, checks: [], checkedAt: 0, changedAt: 0 };
   const health = { failures: {}, lastCameraAt: Date.now(), connectedAt: 0 };
   const timers = [];
+  let reconnectTimer = null;
   let socket = null, lastMessage = 0, nextId = 1000, disposed = false, connected = false;
   const waiting = new Map();
   const tag = { baby: baby.name };
@@ -236,11 +243,12 @@ export function createMonitor({ baby, userId, endpoints, token, ffmpegBin, video
     let auth;
     try {
       auth = await token();
+      if (disposed) return;
       socket = new WebSocket(`${endpoints.socket}/${cameraUid}/user_connect`, { headers: { Authorization: `Bearer ${auth}` } });
     } catch (error) {
       fail("camera connection", error);
       note("socket failed", { error: String(error?.message ?? error).slice(0, 300) });
-      timers.push(setTimeout(connect, timing.reconnectAfterError));
+      reconnect(timing.reconnectAfterError);
       return;
     }
     const ws = socket;
@@ -284,9 +292,14 @@ export function createMonitor({ baby, userId, endpoints, token, ffmpegBin, video
       note("socket closed", { code: event.code });
       if (!opened) token({ failed: auth }).catch((error) => { if (error instanceof SignedOutError) onSignedOut(error); });
       fail("camera connection", `Camera connection closed (${event.code}).`);
-      timers.push(setTimeout(connect, timing.reconnect));
+      reconnect(timing.reconnect);
     };
     ws.onerror = () => {};
+  };
+
+  const reconnect = (delay) => {
+    clearTimeout(reconnectTimer);
+    reconnectTimer = setTimeout(() => { reconnectTimer = null; connect(); }, delay);
   };
 
   const check = async (reason) => {
@@ -390,7 +403,7 @@ export function createMonitor({ baby, userId, endpoints, token, ffmpegBin, video
   };
 
   const checkHealth = () => {
-    if (socket && Date.now() - lastMessage > timing.silentSocket) { note("socket silent, reconnecting"); socket.close(); }
+    if (socket && Date.now() - lastMessage > timing.silentSocket) { note("socket silent, reconnecting"); socket.terminate(); }
     else if (socket?.readyState === WebSocket.OPEN) send(bmm.getStatus, bmm.TYPE.GET_STING_STATUS).catch(() => {});
     tidyVideo();
     changed();
@@ -411,8 +424,17 @@ export function createMonitor({ baby, userId, endpoints, token, ffmpegBin, video
       act();
     },
     snapshot,
+    // The computer woke from sleep: the camera connection is most likely dead, so don't wait for
+    // the silence check to notice.
+    wake() {
+      if (disposed) return;
+      previous = null;
+      if (socket) { note("woke, reconnecting"); socket.terminate(); }
+      pollEvents();
+    },
     dispose() {
       disposed = true;
+      clearTimeout(reconnectTimer);
       for (const t of timers) { clearTimeout(t); clearInterval(t); }
       video.stop();
       socket?.close();
