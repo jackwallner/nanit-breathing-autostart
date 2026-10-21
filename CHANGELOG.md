@@ -2,7 +2,7 @@
 
 ## 1.0.1
 
-- The Mac app is now signed and notarised by Apple, so it opens without a security warning and updates itself.
+- The Mac app is now signed and notarised by Apple, so it opens without a security warning and updates itself. If you installed 1.0.0 on a Mac, download 1.0.1 once by hand; updates are automatic from then on.
 - A dropped camera connection no longer looks like a new session (which could start a needless 10-minute wait), and a session stopped while the connection was down is noticed.
 - Reconnects to the camera right after the computer wakes from sleep.
 - A stop the camera refuses is sent again, so a session is never left to run into Nanit's own dialog.

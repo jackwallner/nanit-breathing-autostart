@@ -47,7 +47,7 @@ The app signs in to Nanit the way Nanit's own app does and keeps a connection to
 - Nanit shows "monitoring was stopped by <your name>" when the app stops a session. That's Nanit's note about who pressed Stop; it can't be turned off.
 - If the computer sleeps, loses internet, or Nanit changes how its service works, autostart stops working and you'll get a notification. Start monitoring in the Nanit app as usual until it's back.
 - It reads the camera's video while your baby is out of bed, so it uses about as much internet as having Nanit's live view open.
-- **Mac, first open:** if macOS says it can't check the app for malicious software, open System Settings → Privacy & Security and click **Open Anyway** once.
+- **Mac:** the app is signed and notarised by Apple, so it opens like any other app.
 - **Windows, first open:** if SmartScreen says "Windows protected your PC", click **More info** → **Run anyway**. The installer isn't code-signed yet.
 
 ## Development
