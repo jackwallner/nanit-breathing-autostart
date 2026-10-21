@@ -1,0 +1,170 @@
+name: Build
+
+# Every push and pull request: build ffmpeg, run the tests, package the installers, install them
+# and drive the installed app against the fake Nanit. A v* tag also publishes the release.
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+    paths-ignore: ["docs/**", "**.md"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
+
+jobs:
+  ffmpeg-mac:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/cache@v4
+        id: cache
+        with:
+          path: vendor/ffmpeg
+          key: ffmpeg-mac-${{ hashFiles('scripts/build-ffmpeg.sh') }}
+      - if: steps.cache.outputs.cache-hit != 'true'
+        run: |
+          brew install nasm
+          bash scripts/build-ffmpeg.sh mac-arm64
+          bash scripts/build-ffmpeg.sh mac-x64
+      - uses: actions/upload-artifact@v4
+        with: { name: ffmpeg-mac, path: vendor/ffmpeg }
+
+  ffmpeg-win:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/cache@v4
+        id: cache
+        with:
+          path: vendor/ffmpeg
+          key: ffmpeg-win-${{ hashFiles('scripts/build-ffmpeg.sh') }}
+      - if: steps.cache.outputs.cache-hit != 'true'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y mingw-w64 nasm libz-mingw-w64-dev
+          bash scripts/build-ffmpeg.sh win-x64
+      - uses: actions/upload-artifact@v4
+        with: { name: ffmpeg-win, path: vendor/ffmpeg }
+
+  # Creates the GitHub release a tag publishes into, so the Mac and Windows jobs share it.
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - env: { GH_TOKEN: "${{ secrets.GITHUB_TOKEN }}" }
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          awk -v v="## $version" '$0==v{f=1;next} /^## /{f=0} f' CHANGELOG.md > notes.md
+          gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 || gh release create "$GITHUB_REF_NAME" --title "Breathing Autostart $version" --notes-file notes.md
+
+  # Both Mac builds come from one job so the update feed (latest-mac.yml) lists both.
+  mac:
+    needs: [ffmpeg-mac, release]
+    if: ${{ !failure() && !cancelled() }}
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with: { name: ffmpeg-mac, path: vendor/ffmpeg }
+      - run: chmod +x vendor/ffmpeg/*/ffmpeg
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm }
+      - run: npm ci
+      - run: npm test
+      - name: Package
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CSC_LINK: ${{ secrets.MAC_CERT_P12 }}
+          CSC_KEY_PASSWORD: ${{ secrets.MAC_CERT_PASSWORD }}
+          APPLE_API_KEY_BASE64: ${{ secrets.APPLE_API_KEY_BASE64 }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+        run: |
+          publish=never
+          [[ "$GITHUB_REF" == refs/tags/v* ]] && publish=always
+          if [ -n "$CSC_LINK" ] && [ -n "$APPLE_API_KEY_BASE64" ]; then
+            # Developer ID signing and notarisation.
+            echo "$APPLE_API_KEY_BASE64" | base64 --decode > "$RUNNER_TEMP/AuthKey.p8"
+            export APPLE_API_KEY="$RUNNER_TEMP/AuthKey.p8"
+            npx electron-builder --mac --arm64 --x64 --publish "$publish"
+          else
+            # Without the certificate the app is ad-hoc signed; macOS asks once before opening it.
+            unset CSC_LINK CSC_KEY_PASSWORD
+            npx electron-builder --mac --arm64 --x64 --publish "$publish" -c.mac.identity=- -c.mac.hardenedRuntime=false
+          fi
+      - name: Install from the disk image and drive it
+        run: bash scripts/ci-mac-install-test.sh dist/Breathing-Autostart-mac-arm64.dmg
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: mac
+          path: |
+            dist/*.dmg
+            shots/
+          retention-days: 14
+
+  # The Intel disk image, installed and driven on an Intel Mac.
+  mac-intel:
+    needs: mac
+    runs-on: macos-15-intel
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with: { name: mac, path: dist }
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm }
+      - run: npm ci
+      - run: bash scripts/ci-mac-install-test.sh dist/Breathing-Autostart-mac-x64.dmg
+
+  windows:
+    needs: [ffmpeg-win, release]
+    if: ${{ !failure() && !cancelled() }}
+    runs-on: windows-2025
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with: { name: ffmpeg-win, path: vendor/ffmpeg }
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm }
+      - run: npm ci
+      - run: npm test
+      - name: Package
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          publish=never
+          [[ "$GITHUB_REF" == refs/tags/v* ]] && publish=always
+          npx electron-builder --win --x64 --publish "$publish"
+      - name: Install with the setup program and drive it
+        shell: pwsh
+        run: |
+          Start-Process -FilePath "dist\Breathing-Autostart-Setup.exe" -ArgumentList "/S" -Wait
+          $exe = Join-Path $env:LOCALAPPDATA "Programs\Breathing Autostart\Breathing Autostart.exe"
+          if (-not (Test-Path $exe)) { throw "Not installed at $exe" }
+          Get-Process "Breathing Autostart" -ErrorAction SilentlyContinue | Stop-Process -Force
+          $env:BA_APP = $exe
+          $env:BA_SHOTS = "shots"
+          npm run test:app
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $uninstaller = Join-Path $env:LOCALAPPDATA "Programs\Breathing Autostart\Uninstall Breathing Autostart.exe"
+          Start-Process -FilePath $uninstaller -ArgumentList "/S" -Wait
+          Start-Sleep -Seconds 5
+          if (Test-Path $exe) { throw "Uninstall left the app behind" }
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: windows
+          path: |
+            dist/*.exe
+            shots/
+          retention-days: 14

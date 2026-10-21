@@ -1,0 +1,142 @@
+{
+  "name": "nanit-breathing-autostart",
+  "productName": "Breathing Autostart",
+  "version": "1.0.0",
+  "description": "Starts Nanit Breathing Motion monitoring when your baby is put down and stops it when they're picked up.",
+  "author": "Jack Wallner",
+  "license": "MIT",
+  "type": "module",
+  "main": "src/main/main.js",
+  "private": true,
+  "dependencies": {
+    "electron-updater": "^6.8.9",
+    "ws": "^8.22.0"
+  },
+  "devDependencies": {
+    "electron": "^44.9.3",
+    "electron-builder": "^26.15.3",
+    "playwright": "^1.64.1"
+  },
+  "allowScripts": {
+    "electron@44.9.3": true
+  },
+  "homepage": "https://jackwallner.com/breathing-autostart/",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/jackwallner/nanit-breathing-autostart.git"
+  },
+  "scripts": {
+    "start": "electron .",
+    "test": "node --test test/*.test.js",
+    "test:app": "node --test test/app.e2e.js",
+    "ffmpeg": "bash scripts/build-ffmpeg.sh",
+    "icons": "python3 scripts/make-icons.py",
+    "dist:mac": "electron-builder --mac --arm64 --x64 --publish never",
+    "dist:win": "electron-builder --win --x64 --publish never"
+  },
+  "build": {
+    "appId": "com.jackwallner.breathingautostart",
+    "productName": "Breathing Autostart",
+    "copyright": "Copyright \u00a9 2026 Jack Wallner",
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "files": [
+      "src/**/*",
+      "package.json",
+      "!**/*.map"
+    ],
+    "asar": true,
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "jackwallner",
+        "repo": "nanit-breathing-autostart",
+        "releaseType": "release"
+      }
+    ],
+    "mac": {
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "arm64",
+            "x64"
+          ]
+        },
+        {
+          "target": "zip",
+          "arch": [
+            "arm64",
+            "x64"
+          ]
+        }
+      ],
+      "category": "public.app-category.utilities",
+      "artifactName": "Breathing-Autostart-mac-${arch}.${ext}",
+      "hardenedRuntime": true,
+      "extraResources": [
+        {
+          "from": "vendor/ffmpeg/mac-${arch}",
+          "to": "ffmpeg"
+        }
+      ],
+      "extendInfo": {
+        "NSHumanReadableCopyright": "Not affiliated with Nanit."
+      }
+    },
+    "dmg": {
+      "title": "Breathing Autostart",
+      "artifactName": "Breathing-Autostart-mac-${arch}.${ext}",
+      "contents": [
+        {
+          "x": 150,
+          "y": 190
+        },
+        {
+          "x": 390,
+          "y": 190,
+          "type": "link",
+          "path": "/Applications"
+        }
+      ],
+      "window": {
+        "width": 540,
+        "height": 380
+      },
+      "format": "ULFO"
+    },
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "artifactName": "Breathing-Autostart-Setup.${ext}",
+      "extraResources": [
+        {
+          "from": "vendor/ffmpeg/win-x64",
+          "to": "ffmpeg"
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "runAfterFinish": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Breathing Autostart",
+      "deleteAppDataOnUninstall": false
+    },
+    "electronLanguages": [
+      "en",
+      "en-US",
+      "en_US"
+    ]
+  }
+}

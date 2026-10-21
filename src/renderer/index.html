@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'none'">
+  <title>Breathing Autostart</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="bar">
+    <img class="mark" src="mark.svg" alt="">
+    <span class="title">Breathing Autostart</span>
+    <button class="link bar-link" id="open-settings" hidden>Settings</button>
+  </header>
+
+  <main id="app">
+    <!-- Sign in -->
+    <section id="view-sign-in" class="view" hidden>
+      <h1>Hands-free breathing monitoring</h1>
+      <p class="lead">Starts Nanit's Breathing Motion monitoring when your baby is put down in Breathing Wear, and stops it when they're picked up.</p>
+      <form id="sign-in-form" class="form" autocomplete="on">
+        <label>Nanit email<input id="email" type="email" autocomplete="username" required spellcheck="false"></label>
+        <label>Password<input id="password" type="password" autocomplete="current-password" required></label>
+        <p class="error" id="sign-in-error" role="alert" hidden></p>
+        <button class="primary" type="submit" id="sign-in-button">Sign in with Nanit</button>
+      </form>
+      <p class="fine">Your password goes straight to Nanit and is never saved. Nanit will send you a code to confirm it's you.</p>
+    </section>
+
+    <!-- Code -->
+    <section id="view-code" class="view" hidden>
+      <h1>Enter Nanit's code</h1>
+      <p class="lead">Nanit just sent you a 4-digit code by text or email.</p>
+      <form id="code-form" class="form">
+        <label>Code<input id="code" inputmode="numeric" autocomplete="one-time-code" maxlength="8" required class="code-input"></label>
+        <p class="error" id="code-error" role="alert" hidden></p>
+        <button class="primary" type="submit" id="code-button">Continue</button>
+        <button class="link" type="button" id="code-back">Use a different account</button>
+      </form>
+    </section>
+
+    <!-- Home -->
+    <section id="view-home" class="view" hidden>
+      <div class="banner" id="update-banner" hidden>
+        <span id="update-text">An update is ready.</span>
+        <button class="small" id="update-button">Restart</button>
+      </div>
+      <p class="setup" id="setup" hidden></p>
+      <div id="babies"></div>
+      <h2 class="section">Recent activity</h2>
+      <ol class="activity" id="activity"></ol>
+      <p class="fine keep">Keep this computer on, plugged in and online. Breathing Autostart only presses Start and Stop for you; Nanit's app is still your monitor.</p>
+    </section>
+
+    <!-- Settings -->
+    <section id="view-settings" class="view" hidden>
+      <h1>Settings</h1>
+      <div class="group">
+        <label class="row"><span><strong>Open at login</strong><small>Starts quietly in the background when you log in.</small></span><input type="checkbox" class="switch" data-setting="openAtLogin"></label>
+        <label class="row"><span><strong>Wait after I stop it in Nanit</strong><small>If you stop monitoring in the Nanit app, autostart waits until your baby is picked up before starting again.</small></span><input type="checkbox" class="switch" data-setting="holdAfterParentStop"></label>
+        <label class="row"><span><strong>Silence the camera's chime</strong><small>Turns off the sound the camera plays when monitoring starts or stops. The breathing alarm isn't affected.</small></span><input type="checkbox" class="switch" data-setting="silenceChime"></label>
+        <label class="row"><span><strong>Tell me when something's wrong</strong><small>A notification if the camera can't be reached or Nanit signs you out.</small></span><input type="checkbox" class="switch" data-setting="notifyProblems"></label>
+      </div>
+      <div class="group">
+        <div class="row"><span><strong>Nanit account</strong><small id="account-email"></small></span><button class="small" id="sign-out">Sign out</button></div>
+        <div class="row"><span><strong>Version <span id="version"></span></strong><small id="update-status">Updates install automatically.</small></span><button class="small" id="check-updates">Check now</button></div>
+      </div>
+      <p class="links"><button class="link" data-open="project">How it works</button><button class="link" data-open="source">Source code</button><button class="link" data-open="logs">Log files</button></p>
+      <p class="fine">Not made by or affiliated with Nanit. Not a medical device. If autostart can't reach your camera, start monitoring in the Nanit app as usual.</p>
+    </section>
+  </main>
+
+  <template id="baby-card">
+    <article class="card">
+      <div class="card-head">
+        <h2 class="name"></h2>
+        <label class="toggle"><span>Autostart</span><input type="checkbox" class="switch enabled"></label>
+      </div>
+      <div class="status"><span class="dot"></span><div><p class="headline"></p><p class="detail"></p></div></div>
+    </article>
+  </template>
+
+  <script src="app.js"></script>
+</body>
+</html>
