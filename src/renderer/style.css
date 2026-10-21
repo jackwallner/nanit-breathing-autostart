@@ -104,6 +104,7 @@ button:focus-visible { outline: none; box-shadow: 0 0 0 3px var(--focus); }
 .link { background: none; border: 0; padding: 0; color: var(--accent); font-weight: 500; }
 .bar-link { font-size: 13px; }
 .error { color: var(--bad); margin: 0; }
+.notice { color: var(--muted); margin: 0; }
 
 .card {
   background: var(--surface);

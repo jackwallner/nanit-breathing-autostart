@@ -88,7 +88,11 @@ function render() {
     show("view-code");
     $("code-error").hidden = !state.error || pending === "code";
     $("code-error").textContent = state.error ?? "";
-    $("code-button").disabled = pending === "code";
+    $("code-notice").hidden = !state.notice || Boolean(pending);
+    $("code-notice").textContent = state.notice ?? "";
+    $("code-resend").disabled = Boolean(pending);
+    $("code-resend").textContent = pending === "resend" ? "Asking Nanit..." : "Send a new code";
+    $("code-button").disabled = Boolean(pending);
     $("code-button").textContent = pending === "code" ? "Checking..." : "Continue";
     if (document.activeElement !== $("code")) $("code").focus();
     return;
@@ -112,7 +116,7 @@ function render() {
 const ask = (what, call, clear) => {
   pending = what;
   if (state) render();
-  $(`${what}-error`).hidden = true;
+  if (what !== "resend") $(`${what}-error`).hidden = true;
   call().finally(() => { pending = null; clear(); if (state) render(); });
 };
 $("sign-in-form").addEventListener("submit", (event) => {
@@ -125,6 +129,7 @@ $("code-form").addEventListener("submit", (event) => {
   if (pending) return;
   ask("code", () => api.code($("code").value), () => { $("code").value = ""; });
 });
+$("code-resend").addEventListener("click", () => { if (!pending) ask("resend", () => api.resendCode(), () => {}); });
 $("code-back").addEventListener("click", () => api.cancelSignIn());
 $("open-settings").addEventListener("click", () => { showingSettings = !showingSettings; render(); });
 $("sign-out").addEventListener("click", () => { showingSettings = false; api.signOut(); });

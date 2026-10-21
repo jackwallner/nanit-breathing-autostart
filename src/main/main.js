@@ -34,7 +34,7 @@ let win = null, tray = null, store = null, service = null, quitting = false, blo
 let view = { account: "signed-out", babies: [], activity: [] };
 let update = null; // { version } once an update is downloaded
 
-const send = () => win?.webContents.send("state", { ...view, settings: store.settings(), version: app.getVersion(), update, platform: process.platform });
+const send = () => win && !win.isDestroyed() && win.webContents.send("state", { ...view, settings: store.settings(), version: app.getVersion(), update, platform: process.platform });
 
 function settingsFor() {
   const s = store.settings();
@@ -125,7 +125,8 @@ function createWindow({ show }) {
 const HIDDEN_TEST = TEST && process.env.BA_TEST_SHOW !== "1";
 
 function showWindow() {
-  if (!win || HIDDEN_TEST) return;
+  if (HIDDEN_TEST) return;
+  if (!win || win.isDestroyed()) createWindow({ show: true });
   if (process.platform === "darwin") app.dock?.show();
   win.show();
   win.focus();
@@ -156,8 +157,10 @@ function setupUpdates() {
 }
 
 function installUpdate() {
+  if (!update) return;
   quitting = true;
-  updater.autoUpdater.quitAndInstall();
+  try { updater.autoUpdater.quitAndInstall(); }
+  catch (error) { quitting = false; store.log("update install failed", { error: String(error?.message ?? error).slice(0, 300) }); }
 }
 
 const trayIcon = () => {
@@ -172,6 +175,7 @@ const trayIcon = () => {
 function registerIpc() {
   ipcMain.handle("sign-in", (_e, { email, password }) => service.signIn(String(email ?? "").trim(), String(password ?? "")));
   ipcMain.handle("code", (_e, code) => service.submitCode(String(code ?? "").replace(/\D/g, "")));
+  ipcMain.handle("resend-code", () => service.resendCode());
   ipcMain.handle("cancel-sign-in", () => service.cancelSignIn());
   ipcMain.handle("sign-out", () => { service.signOut(); keepAwake(); });
   ipcMain.handle("set-enabled", (_e, { uid, on }) => setEnabled([String(uid)], Boolean(on)));
@@ -203,7 +207,12 @@ app.on("activate", showWindow);
 app.on("before-quit", () => { quitting = true; });
 // Stops the camera connections and ffmpeg readers, so nothing outlives the app (on Windows a
 // leftover ffmpeg.exe would also block an update from replacing it).
-app.on("will-quit", () => service?.dispose());
+app.on("will-quit", () => { service?.dispose(); store?.flush(); });
+
+// Something unexpected in a timer or socket callback: log it and keep watching, rather than
+// showing an error box at 3 a.m.
+process.on("uncaughtException", (error) => store?.log("uncaught", { error: String(error?.stack ?? error).slice(0, 1_000) }));
+process.on("unhandledRejection", (error) => store?.log("unhandled", { error: String(error?.stack ?? error).slice(0, 1_000) }));
 app.on("window-all-closed", (event) => event.preventDefault?.());
 
 app.whenReady().then(async () => {

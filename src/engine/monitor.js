@@ -36,6 +36,7 @@ export const CHANGED = 6; // mean grey-level change (0-255) of the 32 x 18 thumb
 export const PROBLEM_COUNT = 3; // a stage failing this many times...
 export const PROBLEM_FOR = 5 * 60_000; // ...over this long is shown as a problem
 export const CAMERA_SILENCE = 30 * 60_000;
+export const SETTLE = 2 * 60_000; // a check that found nothing while the picture was moving gets one more this long after
 
 // Loop timings. Tests run them faster.
 export const TIMING = { watch: 30_000, events: 60_000, status: 20_000, silentSocket: 75_000, reconnect: 10_000, reconnectAfterError: 30_000 };
@@ -83,7 +84,8 @@ export function observe(s, status, now) {
   s.endedAt = now;
   // Ended within minutes of our start (held over the bed, say), or never picked up breathing:
   // back off so it can't loop.
-  if (ended === s.ourStart && s.startedAt && (now - s.startedAt < QUICK_END || !s.sawBreathing)) {
+  // A restart in a new spot is ours too, but not a false start.
+  if (ended === s.ourStart && ended !== s.restarting && s.startedAt && (now - s.startedAt < QUICK_END || !s.sawBreathing)) {
     s.quickEnds = (s.quickEnds ?? 0) + 1;
     s.backoffUntil = now + (s.quickEnds === 1 ? 10 : 30) * 60_000;
   } else s.quickEnds = 0;
@@ -108,7 +110,9 @@ export function decide(s, now) {
   if (s.endedAt && now - s.endedAt < AFTER_END) return null;
   if (!checkBudget(s, now)) return null;
   const last = s.checkedAt ?? 0;
-  const reason = (s.changedAt ?? 0) > last ? "movement" : (s.putDownAt ?? 0) > last ? "put down" : now - last >= IDLE_CHECK ? "idle" : null;
+  // Laid down and then still: the band may have been hidden by a hand at the last check.
+  const settling = s.lastFound === false && (s.changedAt ?? 0) > last - SETTLE && now - last >= SETTLE;
+  const reason = (s.changedAt ?? 0) > last ? "movement" : (s.putDownAt ?? 0) > last ? "put down" : settling ? "settling" : now - last >= IDLE_CHECK ? "idle" : null;
   return reason ? { do: "check", reason } : null;
 }
 
@@ -164,13 +168,14 @@ export function createMonitor({ baby, userId, endpoints, token, ffmpegBin, video
   const enabled = () => settings().enabled(babyUid);
 
   const fail = (stage, error) => {
+    if (disposed) return;
     if (error instanceof SignedOutError) return onSignedOut(error);
     const previous = health.failures[stage];
     health.failures[stage] = { since: previous?.since ?? Date.now(), count: (previous?.count ?? 0) + 1, error: String(error?.message ?? error).slice(0, 300) };
     changed();
   };
   const ok = (stage) => { if (health.failures[stage]) { delete health.failures[stage]; changed(); } };
-  const activity = (text) => { onActivity({ at: Date.now(), baby: baby.name, babyUid, text }); };
+  const activity = (text) => { if (!disposed) onActivity({ at: Date.now(), baby: baby.name, babyUid, text }); };
 
   const snapshot = () => {
     const fault = problem(health, Date.now());
@@ -185,6 +190,7 @@ export function createMonitor({ baby, userId, endpoints, token, ffmpegBin, video
   };
   let last = "";
   const changed = () => {
+    if (disposed) return;
     const now = snapshot();
     const key = JSON.stringify(now);
     if (key !== last) { last = key; onChange(now); }
@@ -223,6 +229,7 @@ export function createMonitor({ baby, userId, endpoints, token, ffmpegBin, video
   const tidyVideo = () => { if (!needVideo()) video.pause(); };
 
   const onStatus = (status) => {
+    ok("camera");
     const before = s.status?.state;
     const wasOurs = s.sessionId === s.ourStart;
     const result = observe(s, status, Date.now());
@@ -254,21 +261,16 @@ export function createMonitor({ baby, userId, endpoints, token, ffmpegBin, video
     const ws = socket;
     ws.binaryType = "arraybuffer";
     lastMessage = Date.now();
-    let opened = false;
+    let opened = false, refused = false;
     ws.onopen = () => {
       opened = true;
       connected = true;
       health.connectedAt = Date.now();
-      health.lastCameraAt = Date.now();
       ok("camera connection");
       note("socket open");
-      send(bmm.getStatus, bmm.TYPE.GET_STING_STATUS).catch(() => {});
-      // Only touches the camera's start/stop chime when the parent asked for it silenced.
-      if (settings().silenceChime) {
-        send((id) => bmm.chime(id, false), bmm.TYPE.PUT_SETTINGS)
-          .then((reply) => note("chime set", { on: false, statusCode: reply.statusCode }))
-          .catch((error) => note("chime failed", { error: String(error.message ?? error) }));
-      }
+      askStatus();
+      chimeSent = null;
+      applyChime();
       changed();
     };
     ws.onmessage = (event) => {
@@ -290,11 +292,27 @@ export function createMonitor({ baby, userId, endpoints, token, ffmpegBin, video
       s.status = null; // unknown until the camera is heard from again
       if (disposed) return;
       note("socket closed", { code: event.code });
-      if (!opened) token({ failed: auth }).catch((error) => { if (error instanceof SignedOutError) onSignedOut(error); });
+      // Refused before opening: the access token may have been revoked early, so get a new one.
+      if (!opened && refused) token({ failed: auth }).catch((error) => { if (error instanceof SignedOutError && !disposed) onSignedOut(error); });
       fail("camera connection", `Camera connection closed (${event.code}).`);
       reconnect(timing.reconnect);
     };
-    ws.onerror = () => {};
+    ws.onerror = (event) => { if (/server response: 40[13]/.test(String(event?.message ?? event?.error?.message ?? ""))) refused = true; };
+  };
+
+  // The camera answers status requests even when idle; an offline camera doesn't.
+  const askStatus = () => send(bmm.getStatus, bmm.TYPE.GET_STING_STATUS).catch((error) => fail("camera", error));
+
+  // The camera's start/stop chime is only touched when the parent silenced it, and turned back on
+  // when they change their mind.
+  let chimeSent = null;
+  const applyChime = () => {
+    const want = settings().silenceChime ? false : chimeSent === false ? true : null;
+    if (want === null || want === chimeSent || socket?.readyState !== WebSocket.OPEN) return;
+    chimeSent = want;
+    send((id) => bmm.chime(id, want), bmm.TYPE.PUT_SETTINGS)
+      .then((reply) => note("chime set", { on: want, statusCode: reply.statusCode }))
+      .catch((error) => { chimeSent = null; note("chime failed", { error: String(error.message ?? error) }); });
   };
 
   const reconnect = (delay) => {
@@ -314,10 +332,12 @@ export function createMonitor({ baby, userId, endpoints, token, ffmpegBin, video
       if (pattern) break;
     }
     const live = bmm.LIVE.has(s.status?.state);
+    s.lastFound = Boolean(pattern);
     const next = live ? duringSearch(s, pattern) : afterCheck(s, pattern, Date.now(), settings());
     note("checked", { reason, found: Boolean(pattern), variant: pattern ? variant : undefined, score: pattern?.score, infrared: frame.infrared, next: next ?? undefined });
     changed();
     if (next === "restart") {
+      s.restarting = s.sessionId;
       await stopSession(s.sessionId, "band in a new spot");
       await sessionOver();
     } else if (next !== "start" || live) return; // a parent may have started it meanwhile
@@ -342,9 +362,15 @@ export function createMonitor({ baby, userId, endpoints, token, ffmpegBin, video
   };
   const stopSession = async (sessionId, reason) => {
     s.ourStop = sessionId;
-    const reply = await send((id) => bmm.stop(id, userId), bmm.TYPE.PUT_STING_STOP);
-    note("stop sent", { sessionId, reason, statusCode: reply.statusCode });
-    if (reply.statusCode !== 200) throw new Error(`Nanit didn't accept the stop (${reply.statusCode}).`);
+    let reply;
+    try {
+      reply = await send((id) => bmm.stop(id, userId), bmm.TYPE.PUT_STING_STOP);
+      note("stop sent", { sessionId, reason, statusCode: reply.statusCode });
+      if (reply.statusCode !== 200) throw new Error(`Nanit didn't accept the stop (${reply.statusCode}).`);
+    } catch (error) {
+      if (s.ourStop === sessionId) s.ourStop = null; // try again on the next status
+      throw error;
+    }
     activity(STOP_TEXT[reason] ?? "Stopped monitoring");
   };
 
@@ -362,7 +388,6 @@ export function createMonitor({ baby, userId, endpoints, token, ffmpegBin, video
     } catch (error) {
       fail(action.do, error);
       note(`${action.do} failed`, { error: String(error.message ?? error).slice(0, 300) });
-      if (action.do === "stop") s.ourStop = null; // try again on the next status
     } finally { busy = false; changed(); }
   }
 
@@ -397,6 +422,7 @@ export function createMonitor({ baby, userId, endpoints, token, ffmpegBin, video
       ok("events");
       act();
     } catch (error) {
+      if (disposed) return;
       if (error instanceof SignedOutError) return onSignedOut(error);
       note("events failed", { error: String(error.message ?? error).slice(0, 300) });
     }
@@ -404,7 +430,7 @@ export function createMonitor({ baby, userId, endpoints, token, ffmpegBin, video
 
   const checkHealth = () => {
     if (socket && Date.now() - lastMessage > timing.silentSocket) { note("socket silent, reconnecting"); socket.terminate(); }
-    else if (socket?.readyState === WebSocket.OPEN) send(bmm.getStatus, bmm.TYPE.GET_STING_STATUS).catch(() => {});
+    else if (socket?.readyState === WebSocket.OPEN) askStatus();
     tidyVideo();
     changed();
   };
@@ -420,6 +446,7 @@ export function createMonitor({ baby, userId, endpoints, token, ffmpegBin, video
     // Autostart was switched on or off, or a setting changed.
     refresh() {
       if (!enabled()) video.pause();
+      applyChime();
       changed();
       act();
     },

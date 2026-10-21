@@ -92,8 +92,14 @@ export function nanitVideo({ ffmpegBin, babyUid, token, input, requestStream = a
     const watchdog = setInterval(() => {
       if (now() - (latest && latest.at > startedAt ? latest.at : startedAt) > STALE) proc.kill("SIGKILL");
     }, 5_000);
-    proc.on("error", (error) => { errors += String(error?.message ?? error); });
-    proc.on("exit", async (code, signal) => {
+    // A spawn that fails (ffmpeg missing, or blocked by antivirus) reports only "error", never
+    // "exit", so both end the run, once.
+    let ended = false;
+    proc.on("error", (error) => { errors += String(error?.message ?? error); if (proc.pid === undefined) finish(null, null); });
+    proc.on("exit", (code, signal) => finish(code, signal));
+    async function finish(code, signal) {
+      if (ended) return;
+      ended = true;
       clearInterval(watchdog);
       if (child === proc) child = null;
       if (paused || stopped) return;
@@ -105,7 +111,7 @@ export function nanitVideo({ ffmpegBin, babyUid, token, input, requestStream = a
       try { await requestStream(); log("stream requested"); }
       catch (error) { log("stream request failed", { error: redact(error?.message ?? error).slice(0, 300) }); }
       schedule(delay);
-    });
+    }
   }
 
   // The newest frame no older than maxAge, waiting up to `wait` for one.

@@ -36,7 +36,12 @@ export function createStore(dir, crypto) {
     log: path.join(dir, "logs", "autostart.log"),
   };
   let settings = { ...DEFAULTS, ...readJson(files.settings, {}) };
-  let activityTimer = null;
+  let activityTimer = null, unsaved = null;
+  // Writes the activity list waiting to be saved (the app also calls this on quit).
+  const flush = () => {
+    clearTimeout(activityTimer);
+    if (unsaved) { try { writeJson(files.activity, unsaved); } catch {} unsaved = null; }
+  };
 
   return {
     dir, files,
@@ -61,9 +66,11 @@ export function createStore(dir, crypto) {
     clearTokens() { rmSync(files.session, { force: true }); },
     loadActivity: () => readJson(files.activity, []),
     saveActivity(list) {
+      unsaved = list;
       clearTimeout(activityTimer);
-      activityTimer = setTimeout(() => { try { writeJson(files.activity, list); } catch {} }, 1_000);
+      activityTimer = setTimeout(flush, 1_000);
     },
+    flush,
     log(what, extra = {}) {
       try {
         if (existsSync(files.log) && statSync(files.log).size > LOG_MAX) renameSync(files.log, `${files.log}.1`);

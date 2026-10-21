@@ -11,9 +11,12 @@ export class SignedOutError extends Error {}
 // Wrong email, password or code: shown to the parent as is.
 export class SignInError extends Error {}
 
+// When the access token runs out, by this computer's clock. The token's own lifetime (exp - iat)
+// counts from when it arrived, so a computer clock that's off doesn't refresh on every call.
 export function expiresAt(token, obtainedAt) {
   try {
-    const { exp } = JSON.parse(Buffer.from(token.split(".")[1], "base64url").toString());
+    const { exp, iat } = JSON.parse(Buffer.from(token.split(".")[1], "base64url").toString());
+    if (Number.isFinite(exp) && Number.isFinite(iat) && exp > iat) return obtainedAt + (exp - iat) * 1000;
     if (Number.isFinite(exp)) return exp * 1000;
   } catch {}
   return obtainedAt + FALLBACK_LIFE;
@@ -22,14 +25,18 @@ export function expiresAt(token, obtainedAt) {
 const pairFrom = (body, now) => ({ accessToken: body.access_token, refreshToken: body.refresh_token, obtainedAt: now });
 
 // store: { load(): pair | null, save(pair) }. token() gives a usable access token; after a 401,
-// token({ failed }) refreshes unless the token that failed was already replaced.
-export function nanitTokens({ api, store, fetcher = fetch, now = Date.now }) {
+// token({ failed }) refreshes unless the token that failed was already replaced. The newest pair
+// is kept in memory too: if saving it fails, the refresh token Nanit just used up isn't sent again.
+// token.reset() forgets it all (sign-out, or a new sign-in).
+export function nanitTokens({ api, store, fetcher = fetch, now = Date.now, log = () => {} }) {
   let held = null;
   let refreshing = null;
+  let generation = 0;
   const fresh = (pair) => expiresAt(pair.accessToken, pair.obtainedAt) - now() > EARLY;
 
   const refresh = async () => {
-    const current = await store.load();
+    const mine = generation;
+    const current = held ?? await store.load();
     if (!current) throw new SignedOutError("Not signed in to Nanit.");
     let response;
     try {
@@ -39,25 +46,29 @@ export function nanitTokens({ api, store, fetcher = fetch, now = Date.now }) {
         body: JSON.stringify({ refresh_token: current.refreshToken }),
       });
     } catch (error) { throw new Error(`Nanit didn't answer the token refresh: ${error?.message ?? error}`); }
-    if (response.status === 401 || response.status === 403 || response.status === 404) {
-      throw new SignedOutError("Nanit ended this sign-in. Sign in again.");
-    }
+    if (response.status === 401 || response.status === 404) throw new SignedOutError("Nanit ended this sign-in. Sign in again.");
     if (!response.ok) throw new Error(`Nanit token refresh failed (HTTP ${response.status}).`);
     const body = await response.json();
     if (!body.access_token || !body.refresh_token) throw new Error("Nanit's token refresh answer had no tokens.");
     const pair = pairFrom(body, now());
-    await store.save(pair);
+    if (mine !== generation) throw new SignedOutError("Signed out.");
+    held = pair;
+    try { await store.save(pair); } catch (error) { log("token save failed", { error: String(error?.message ?? error).slice(0, 300) }); }
     return pair;
   };
 
-  return async ({ failed } = {}) => {
-    if (!held || held.accessToken === failed || !fresh(held)) held = await store.load();
+  const token = async ({ failed } = {}) => {
+    const mine = generation;
+    held ??= await store.load();
     if (!held) throw new SignedOutError("Not signed in to Nanit.");
     if (held.accessToken !== failed && fresh(held)) return held.accessToken;
     refreshing ??= refresh().finally(() => { refreshing = null; });
-    held = await refreshing;
-    return held.accessToken;
+    const pair = await refreshing;
+    if (mine !== generation) throw new SignedOutError("Signed out.");
+    return pair.accessToken;
   };
+  token.reset = () => { generation++; held = null; refreshing = null; };
+  return token;
 }
 
 async function post(api, body, fetcher) {

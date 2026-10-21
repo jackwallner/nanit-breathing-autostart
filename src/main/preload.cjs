@@ -5,6 +5,7 @@ contextBridge.exposeInMainWorld("autostart", {
   onState: (callback) => ipcRenderer.on("state", (_event, state) => callback(state)),
   signIn: (email, password) => ipcRenderer.invoke("sign-in", { email, password }),
   code: (code) => ipcRenderer.invoke("code", code),
+  resendCode: () => ipcRenderer.invoke("resend-code"),
   cancelSignIn: () => ipcRenderer.invoke("cancel-sign-in"),
   signOut: () => ipcRenderer.invoke("sign-out"),
   setEnabled: (uid, on) => ipcRenderer.invoke("set-enabled", { uid, on }),

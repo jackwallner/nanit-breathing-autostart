@@ -202,3 +202,19 @@ test("a new session seen after a reconnect is a new start (1 assertion)", () => 
   s.status = null;
   assert.equal(observe(s, running("NORMAL", "xyz"), T + 600_000), "started");
 });
+
+test("a check that found nothing while the baby was being settled gets one more two minutes later, then waits (3 assertions)", () => {
+  const s = { status: off("OFF"), checkedAt: T, changedAt: T - 10_000, checks: [T], lastFound: false };
+  assert.equal(decide(s, T + 2 * 60_000 - 1), null);
+  assert.deepEqual(decide(s, T + 2 * 60_000), { do: "check", reason: "settling" });
+  // After that one, a still picture waits for the idle check.
+  assert.equal(decide({ ...s, checkedAt: T + 2 * 60_000, checks: [T, T + 2 * 60_000] }, T + 4 * 60_000), null);
+});
+
+test("restarting a session in a new spot isn't a false start (1 assertion)", () => {
+  const s = { status: off("OFF"), ourStart: "abc" };
+  observe(s, running("NORMAL", "abc"), T);
+  s.restarting = "abc"; s.ourStop = "abc";
+  observe(s, off("COMPLETED"), T + 60_000);
+  assert.equal(s.backoffUntil, undefined);
+});

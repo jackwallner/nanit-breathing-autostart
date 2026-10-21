@@ -11,17 +11,17 @@ const ACTIVITY_KEEP = 100;
 // settings(): { enabled(uid), holdAfterParentStop, silenceChime }
 export function createService({ store, endpoints, ffmpegBin, videoInput, timing = TIMING, settings,
   log = () => {}, onUpdate = () => {}, onProblem = () => {} }) {
-  const state = { account: "signed-out", user: null, babies: [], activity: store.loadActivity?.() ?? [], error: null, setup: null };
+  const state = { account: "signed-out", user: null, babies: [], activity: store.loadActivity?.() ?? [], error: null, notice: null, setup: null };
   const monitors = new Map();
   let pending = null; // email, password and mfa token between the two sign-in steps, in memory only
   let setupTimer = null;
   let generation = 0; // bumped on sign-out, so a setup still in flight from before then stops
   const tokenStore = { load: async () => store.loadTokens(), save: async (pair) => store.saveTokens(pair) };
-  const token = nanitTokens({ api: endpoints.api, store: tokenStore });
+  const token = nanitTokens({ api: endpoints.api, store: tokenStore, log });
 
   const update = () => onUpdate(view());
   const view = () => ({
-    account: state.account, user: state.user, error: state.error, setup: state.setup,
+    account: state.account, user: state.user, error: state.error, notice: state.notice, setup: state.setup,
     babies: state.babies.map((b) => monitors.get(b.uid)?.snapshot() ?? { uid: b.uid, name: b.name, phase: "connecting", enabled: settings().enabled(b.uid) }),
     activity: state.activity.slice(0, 50),
   });
@@ -65,6 +65,7 @@ export function createService({ store, endpoints, ffmpegBin, videoInput, timing 
     if (state.account === "signed-out") return;
     log("signed out", { error: String(error?.message ?? error) });
     stopMonitors();
+    token.reset();
     store.clearTokens();
     Object.assign(state, { account: "signed-out", user: null, babies: [], setup: null,
       error: error ? "Nanit signed you out. Sign in again to keep autostart running." : null });
@@ -105,9 +106,11 @@ export function createService({ store, endpoints, ffmpegBin, videoInput, timing 
   };
 
   const finish = async (pair) => {
+    stopMonitors();
+    token.reset();
     await store.saveTokens(pair);
     pending = null;
-    state.error = null;
+    Object.assign(state, { error: null, notice: null });
     await setup();
   };
 
@@ -121,7 +124,8 @@ export function createService({ store, endpoints, ffmpegBin, videoInput, timing 
       await setup();
     },
     async signIn(email, password) {
-      state.error = null;
+      if (state.account === "signed-in") return;
+      Object.assign(state, { error: null, notice: null });
       try {
         const result = await startSignIn({ api: endpoints.api, email, password });
         if (result.pair) return await finish(result.pair);
@@ -136,7 +140,7 @@ export function createService({ store, endpoints, ffmpegBin, videoInput, timing 
     },
     async submitCode(code) {
       if (!pending) { state.account = "signed-out"; return update(); }
-      state.error = null;
+      Object.assign(state, { error: null, notice: null });
       try {
         const result = await finishSignIn({ api: endpoints.api, ...pending, code });
         await finish(result.pair);
@@ -145,16 +149,31 @@ export function createService({ store, endpoints, ffmpegBin, videoInput, timing 
         update();
       }
     },
+    // Asks Nanit for another code with the email and password still held from step one.
+    async resendCode() {
+      if (!pending) { state.account = "signed-out"; return update(); }
+      Object.assign(state, { error: null, notice: null });
+      try {
+        const result = await startSignIn({ api: endpoints.api, email: pending.email, password: pending.password });
+        if (result.pair) return await finish(result.pair);
+        pending.mfaToken = result.mfaToken;
+        state.notice = "Nanit sent a new code.";
+      } catch (error) {
+        state.error = error instanceof SignInError ? error.message : "Couldn't ask Nanit for a new code. Try again.";
+      }
+      update();
+    },
     cancelSignIn() {
       pending = null;
-      Object.assign(state, { account: "signed-out", error: null });
+      Object.assign(state, { account: "signed-out", error: null, notice: null });
       update();
     },
     signOut() {
       stopMonitors();
+      token.reset();
       store.clearTokens();
       pending = null;
-      Object.assign(state, { account: "signed-out", user: null, babies: [], error: null, setup: null });
+      Object.assign(state, { account: "signed-out", user: null, babies: [], error: null, notice: null, setup: null });
       update();
     },
     // A setting changed: monitors re-read settings().

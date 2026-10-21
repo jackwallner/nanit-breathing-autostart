@@ -11,5 +11,12 @@ hdiutil detach "$mount"
 app="/Applications/Breathing Autostart.app"
 codesign --verify --deep --strict "$app"
 codesign -dv "$app" 2>&1 | grep -E "Authority|Signature|TeamIdentifier" || true
+# Signed builds: Gatekeeper must accept the app as notarised Developer ID software, with the
+# ticket stapled so it opens offline too, and the bundled ffmpeg must carry the same signature.
+if [ "${NOTARIZED:-}" = "true" ]; then
+  spctl --assess --type execute -vv "$app" 2>&1 | tee /dev/stderr | grep -q "source=Notarized Developer ID"
+  xcrun stapler validate "$app"
+  codesign -dv "$app/Contents/Resources/ffmpeg/ffmpeg" 2>&1 | grep -q "TeamIdentifier=YXG4MP6W39"
+fi
 file "$app/Contents/Resources/ffmpeg/ffmpeg"
 BA_APP="$app/Contents/MacOS/Breathing Autostart" BA_SHOTS=shots npm run test:app

@@ -1,7 +1,7 @@
 {
   "name": "nanit-breathing-autostart",
   "productName": "Breathing Autostart",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Starts Nanit Breathing Motion monitoring when your baby is put down and stops it when they're picked up.",
   "author": "Jack Wallner",
   "license": "MIT",
@@ -37,7 +37,7 @@
   "build": {
     "appId": "com.jackwallner.breathingautostart",
     "productName": "Breathing Autostart",
-    "copyright": "Copyright \u00a9 2026 Jack Wallner",
+    "copyright": "Copyright © 2026 Jack Wallner",
     "directories": {
       "output": "dist",
       "buildResources": "build"

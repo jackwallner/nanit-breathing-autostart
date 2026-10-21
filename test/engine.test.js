@@ -157,3 +157,42 @@ test("signing out while the app is still connecting leaves nothing running", { t
   }
   void view;
 });
+
+test("a stop the camera refuses is sent again; the chime setting applies at once and can be undone; a new code can be asked for", { timeout: 60_000 }, async () => {
+  const fake = await startFakeNanit();
+  const settings = { enabled: () => true, holdAfterParentStop: true, silenceChime: false };
+  let tokens = null, view = null;
+  const service = createService({
+    store: { loadTokens: () => tokens, saveTokens: (pair) => { tokens = pair; }, clearTokens: () => { tokens = null; } },
+    endpoints: fake.endpoints, ffmpegBin: ffmpegPath(), timing: FAST, settings: () => settings,
+    videoInput: () => ["-re", "-stream_loop", "-1", "-i", clip], onUpdate: (v) => { view = v; },
+  });
+  try {
+    await service.signIn("parent@example.com", PASSWORD);
+    await service.resendCode();
+    assert.equal(view.account, "needs-code");
+    assert.equal(view.notice, "Nanit sent a new code.");
+    assert.equal(fake.logins.filter((l) => !l.mfa_code).length, 2);
+    await service.submitCode(CODE);
+    await until("the camera connection", () => view.babies[0].phase === "watching");
+    assert.equal(fake.chimes.length, 0, "the chime is left alone unless asked");
+
+    settings.silenceChime = true;
+    service.refresh();
+    await until("chime off", () => fake.chimes.at(-1) === false);
+    settings.silenceChime = false;
+    service.refresh();
+    await until("chime back on", () => fake.chimes.at(-1) === true);
+
+    fake.parentStart();
+    await until("monitoring", () => view.babies[0].phase === "monitoring");
+    fake.refuseStops = 1;
+    fake.babyOut();
+    await until("the refused stop", () => fake.refused === 1);
+    await until("the stop sent again", () => fake.stops.length === 1, 5_000);
+    await until("watching again", () => view.babies[0].phase === "watching");
+  } finally {
+    service.dispose();
+    await fake.close();
+  }
+});

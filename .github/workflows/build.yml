@@ -100,6 +100,7 @@ jobs:
             npx electron-builder --mac --arm64 --x64 --publish "$publish" -c.mac.identity=- -c.mac.hardenedRuntime=false
           fi
       - name: Install from the disk image and drive it
+        env: { NOTARIZED: "${{ secrets.MAC_CERT_P12 != '' }}" }
         run: bash scripts/ci-mac-install-test.sh dist/Breathing-Autostart-mac-arm64.dmg
       - uses: actions/upload-artifact@v4
         if: always()
@@ -122,7 +123,8 @@ jobs:
       - uses: actions/setup-node@v4
         with: { node-version: 22, cache: npm }
       - run: npm ci
-      - run: bash scripts/ci-mac-install-test.sh dist/Breathing-Autostart-mac-x64.dmg
+      - env: { NOTARIZED: "${{ secrets.MAC_CERT_P12 != '' }}" }
+        run: bash scripts/ci-mac-install-test.sh dist/Breathing-Autostart-mac-x64.dmg
 
   windows:
     needs: [ffmpeg-win, release]

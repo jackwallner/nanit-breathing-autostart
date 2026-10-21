@@ -98,3 +98,17 @@ test("PUT_STREAMING asks for the MOBILE stream, STARTED, at the given URL", () =
   assert.deepEqual([streaming[1][0], streaming[2][0]], [2, 0]);
   assert.equal(new TextDecoder().decode(streaming[3][0]), "rtmps://relay/x");
 });
+
+test("an ffmpeg that can't be started is retried, not wedged (2 assertions)", async () => {
+  const timers = [];
+  const { spawn, calls } = fakeSpawn([(proc) => proc.emit("error", new Error("spawn EACCES"))]);
+  const video = nanitVideo({ ffmpegBin: "ffmpeg", babyUid: "42", token: async () => "t", input, spawn, setTimer: (fn, ms) => { timers.push({ fn, ms }); return timers.length; } });
+  await video.start();
+  await new Promise((resolve) => setImmediate(resolve));
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(video.running, false);
+  timers.find((t) => t.ms >= 5_000).fn();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(calls.length, 2);
+  video.stop();
+});

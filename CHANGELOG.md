@@ -1,5 +1,19 @@
 # Changelog
 
+## 1.0.1
+
+- The Mac app is now signed and notarised by Apple, so it opens without a security warning and updates itself.
+- A dropped camera connection no longer looks like a new session (which could start a needless 10-minute wait), and a session stopped while the connection was down is noticed.
+- Reconnects to the camera right after the computer wakes from sleep.
+- A stop the camera refuses is sent again, so a session is never left to run into Nanit's own dialog.
+- Moving the band to a new spot no longer counts as a false start.
+- One more Breathing Wear check two minutes after the baby is settled, in case a hand hid the band.
+- "Send a new code" on the code screen.
+- Signing out and back in never reuses the old account's sign-in, and a sign-in Nanit just renewed is kept even if saving it fails.
+- An offline camera shows as a problem after 5 minutes instead of "Connecting" for 30.
+- Silencing the camera's chime applies at once, and turning the setting off turns the chime back on.
+- Quitting stops the video reader, and a second copy of the app no longer connects to the camera.
+
 ## 1.0.0
 
 - First release for Mac (Apple silicon and Intel) and Windows.

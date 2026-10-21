@@ -34,6 +34,7 @@ export async function startFakeNanit() {
     sockets: new Set(),
     connections: 0,
     delay: 0, // ms before /user and /babies answer
+    refuseStops: 0, // this many stops are answered with an error
   };
   let counter = 0;
   const mint = () => {
@@ -100,11 +101,13 @@ export async function startFakeNanit() {
           setTimeout(() => fake.push({ state: "INITING", breathing: "INIT", bpm: null, sessionId }), 50);
           setTimeout(() => fake.push({ state: "RUNNING", breathing: "NORMAL", bpm: 38, sessionId }), 150);
         } else if (type === bmm.TYPE.PUT_STING_STOP) {
+          if (fake.refuseStops > 0) { fake.refuseStops--; fake.refused = (fake.refused ?? 0) + 1; return respond(ws, id, type, undefined, 500); }
           fake.stops.push({ sessionId: fake.status.sessionId });
           respond(ws, id, type);
           setTimeout(() => fake.push({ state: "COMPLETED", breathing: null, bpm: null, sessionId: fake.status.sessionId }), 50);
         } else if (type === bmm.TYPE.PUT_SETTINGS) {
-          fake.chimes.push(true);
+          const chime = bmm.fields(bmm.fields(r[5][0])[22][0])[9]?.[0] ?? 0;
+          fake.chimes.push(chime === 1);
           respond(ws, id, type);
         } else if (type === bmm.TYPE.PUT_STREAMING) {
           fake.streams.push(true);
@@ -116,8 +119,8 @@ export async function startFakeNanit() {
     });
   });
 
-  const respond = (ws, id, type, status) => {
-    const response = [...int(1, id), ...int(2, type), ...int(3, 200), ...(status ? bytes(21, encodeStatus(status)) : [])];
+  const respond = (ws, id, type, status, code = 200) => {
+    const response = [...int(1, id), ...int(2, type), ...int(3, code), ...(status ? bytes(21, encodeStatus(status)) : [])];
     ws.send(Uint8Array.from([...int(1, bmm.MESSAGE.RESPONSE), ...bytes(3, response)]));
   };
 
