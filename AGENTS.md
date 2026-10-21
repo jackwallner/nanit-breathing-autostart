@@ -8,3 +8,4 @@ Electron app (Mac and Windows) that starts and stops Nanit Breathing Motion moni
 - Tests: `npm test` (needs the local ffmpeg), `npm run test:app` (Electron window). CI installs the real installers on macOS arm64, macOS Intel and Windows and drives them.
 - Release: bump `version` in package.json, add a CHANGELOG section, tag `vX.Y.Z` and push the tag. Mac builds are Developer ID signed and notarised when the `MAC_CERT_P12`, `MAC_CERT_PASSWORD`, `APPLE_API_KEY_BASE64`, `APPLE_API_KEY_ID` and `APPLE_API_ISSUER` secrets are set; otherwise ad-hoc signed.
 - Download links use fixed asset names (`Breathing-Autostart-mac-arm64.dmg`, `-mac-x64.dmg`, `Breathing-Autostart-Setup.exe`) under `releases/latest/download/`; don't rename them.
+- `project-docs/` holds internal notes (index in `project-docs/README.md`); `docs/` is the published site only.
