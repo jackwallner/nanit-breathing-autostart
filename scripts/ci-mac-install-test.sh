@@ -15,7 +15,8 @@ codesign -dv "$app" 2>&1 | grep -E "Authority|Signature|TeamIdentifier" || true
 # ticket stapled so it opens offline too, and the bundled ffmpeg must carry the same signature.
 if [ "${NOTARIZED:-}" = "true" ]; then
   spctl --assess --type execute -vv "$app" 2>&1 | tee /dev/stderr | grep -q "source=Notarized Developer ID"
-  xcrun stapler validate "$app"
+  # stapler asks Apple's servers, which sometimes drop the connection.
+  for try in 1 2 3; do xcrun stapler validate "$app" && break; [ "$try" = 3 ] && exit 1; sleep 10; done
   codesign -dv "$app/Contents/Resources/ffmpeg/ffmpeg" 2>&1 | grep -q "TeamIdentifier=YXG4MP6W39"
 fi
 file "$app/Contents/Resources/ffmpeg/ffmpeg"

@@ -141,10 +141,13 @@ export function createService({ store, endpoints, ffmpegBin, videoInput, timing 
     async submitCode(code) {
       if (!pending) { state.account = "signed-out"; return update(); }
       Object.assign(state, { error: null, notice: null });
+      const mine = pending; // "Use a different account" meanwhile drops this attempt
       try {
-        const result = await finishSignIn({ api: endpoints.api, ...pending, code });
+        const result = await finishSignIn({ api: endpoints.api, ...mine, code });
+        if (pending !== mine) return;
         await finish(result.pair);
       } catch (error) {
+        if (pending !== mine) return;
         state.error = error instanceof SignInError ? error.message : "Something went wrong signing in. Try again.";
         update();
       }
@@ -153,12 +156,15 @@ export function createService({ store, endpoints, ffmpegBin, videoInput, timing 
     async resendCode() {
       if (!pending) { state.account = "signed-out"; return update(); }
       Object.assign(state, { error: null, notice: null });
+      const mine = pending;
       try {
-        const result = await startSignIn({ api: endpoints.api, email: pending.email, password: pending.password });
+        const result = await startSignIn({ api: endpoints.api, email: mine.email, password: mine.password });
+        if (pending !== mine) return;
         if (result.pair) return await finish(result.pair);
-        pending.mfaToken = result.mfaToken;
+        mine.mfaToken = result.mfaToken;
         state.notice = "Nanit sent a new code.";
       } catch (error) {
+        if (pending !== mine) return;
         state.error = error instanceof SignInError ? error.message : "Couldn't ask Nanit for a new code. Try again.";
       }
       update();

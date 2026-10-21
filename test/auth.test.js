@@ -117,3 +117,28 @@ test("a computer clock that's an hour fast still trusts a token for its own life
   await token();
   assert.equal(calls.length, 0);
 });
+
+test("a refresh from before a sign-out finishing late doesn't let a second refresh of the new sign-in through (1 assertion)", async () => {
+  const calls = [], gates = [];
+  const fetcher = async (_url, init) => {
+    calls.push(JSON.parse(init.body).refresh_token);
+    await new Promise((resolve) => gates.push(resolve));
+    return Response.json({ access_token: jwt(NOW / 1000 + 3600), refresh_token: `next-${calls.length}` });
+  };
+  const called = async (n) => { while (calls.length < n) await new Promise((resolve) => setImmediate(resolve)); };
+  const store = memory({ accessToken: jwt(NOW / 1000), refreshToken: "old", obtainedAt: NOW });
+  const token = nanitTokens({ api: API, store, fetcher, now });
+  const stale = token().catch(() => {});
+  await called(1);
+  token.reset(); // signed out, then in again
+  store.pair = { accessToken: jwt(NOW / 1000), refreshToken: "new", obtainedAt: NOW };
+  const a = token();
+  await called(2);
+  gates[0]();
+  await stale;
+  const b = token(); // must join the new sign-in's refresh, not start a third
+  await new Promise((resolve) => setImmediate(resolve));
+  gates[1]();
+  await Promise.all([a, b]);
+  assert.deepEqual(calls, ["old", "new"]);
+});

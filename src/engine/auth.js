@@ -62,7 +62,10 @@ export function nanitTokens({ api, store, fetcher = fetch, now = Date.now, log =
     held ??= await store.load();
     if (!held) throw new SignedOutError("Not signed in to Nanit.");
     if (held.accessToken !== failed && fresh(held)) return held.accessToken;
-    refreshing ??= refresh().finally(() => { refreshing = null; });
+    if (!refreshing) {
+      const run = refresh().finally(() => { if (refreshing === run) refreshing = null; });
+      refreshing = run;
+    }
     const pair = await refreshing;
     if (mine !== generation) throw new SignedOutError("Signed out.");
     return pair.accessToken;

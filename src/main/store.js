@@ -13,6 +13,7 @@ export const DEFAULTS = {
   openAtLogin: true,
   notifyProblems: true,
   toldAboutTray: false,
+  chimeMuted: {}, // baby uid -> true while this app has the camera's chime turned off
 };
 
 const LOG_MAX = 2 * 1024 * 1024;

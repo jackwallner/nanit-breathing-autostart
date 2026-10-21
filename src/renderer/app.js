@@ -113,11 +113,16 @@ function render() {
   renderActivity();
 }
 
+let asking = 0; // which request is current, so an abandoned one finishing late changes nothing
 const ask = (what, call, clear) => {
+  const mine = ++asking;
   pending = what;
   if (state) render();
   if (what !== "resend") $(`${what}-error`).hidden = true;
-  call().finally(() => { pending = null; clear(); if (state) render(); });
+  call().finally(() => {
+    if (mine !== asking) return;
+    pending = null; clear(); if (state) render();
+  });
 };
 $("sign-in-form").addEventListener("submit", (event) => {
   event.preventDefault();
@@ -130,7 +135,7 @@ $("code-form").addEventListener("submit", (event) => {
   ask("code", () => api.code($("code").value), () => { $("code").value = ""; });
 });
 $("code-resend").addEventListener("click", () => { if (!pending) ask("resend", () => api.resendCode(), () => {}); });
-$("code-back").addEventListener("click", () => api.cancelSignIn());
+$("code-back").addEventListener("click", () => { pending = null; asking++; api.cancelSignIn(); });
 $("open-settings").addEventListener("click", () => { showingSettings = !showingSettings; render(); });
 $("sign-out").addEventListener("click", () => { showingSettings = false; api.signOut(); });
 $("update-button").addEventListener("click", () => api.installUpdate());

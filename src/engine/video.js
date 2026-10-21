@@ -105,6 +105,8 @@ export function nanitVideo({ ffmpegBin, babyUid, token, input, requestStream = a
       if (paused || stopped) return;
       log("video stopped", { code, signal, frames, error: redact(errors.trim()).slice(0, 300) || undefined });
       if (frames > 0) return schedule(2_000);
+      // ffmpeg itself wouldn't run (missing, or blocked by antivirus): no use asking the camera.
+      if (proc.pid === undefined) { log("ffmpeg can't run", { bin: ffmpegBin }); return schedule(60_000); }
       // Nothing came through: most likely nobody is pushing. Ask the camera, then try again.
       const delay = RETRY[Math.min(failures, RETRY.length - 1)];
       failures++;

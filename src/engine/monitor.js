@@ -304,15 +304,23 @@ export function createMonitor({ baby, userId, endpoints, token, ffmpegBin, video
   const askStatus = () => send(bmm.getStatus, bmm.TYPE.GET_STING_STATUS).catch((error) => fail("camera", error));
 
   // The camera's start/stop chime is only touched when the parent silenced it, and turned back on
-  // when they change their mind.
-  let chimeSent = null;
+  // when they change their mind. Having muted it is remembered (settings), across restarts too.
+  let chimeSent = null, chimeBusy = false;
   const applyChime = () => {
-    const want = settings().silenceChime ? false : chimeSent === false ? true : null;
-    if (want === null || want === chimeSent || socket?.readyState !== WebSocket.OPEN) return;
-    chimeSent = want;
+    const muted = chimeSent === false || (chimeSent === null && Boolean(settings().chimeMuted?.(babyUid)));
+    const want = settings().silenceChime ? false : muted ? true : null;
+    if (want === null || want === chimeSent || chimeBusy || socket?.readyState !== WebSocket.OPEN) return;
+    chimeBusy = true;
     send((id) => bmm.chime(id, want), bmm.TYPE.PUT_SETTINGS)
-      .then((reply) => note("chime set", { on: want, statusCode: reply.statusCode }))
-      .catch((error) => { chimeSent = null; note("chime failed", { error: String(error.message ?? error) }); });
+      .then((reply) => {
+        note("chime set", { on: want, statusCode: reply.statusCode });
+        chimeBusy = false;
+        if (reply.statusCode !== 200) return;
+        chimeSent = want;
+        settings().setChimeMuted?.(babyUid, !want);
+        applyChime(); // the setting may have changed meanwhile
+      })
+      .catch((error) => { chimeBusy = false; note("chime failed", { error: String(error.message ?? error) }); });
   };
 
   const reconnect = (delay) => {
@@ -456,6 +464,9 @@ export function createMonitor({ baby, userId, endpoints, token, ffmpegBin, video
     wake() {
       if (disposed) return;
       previous = null;
+      // The time asleep wasn't the camera's fault.
+      health.failures = {};
+      health.lastCameraAt = Date.now();
       if (socket) { note("woke, reconnecting"); socket.terminate(); }
       pollEvents();
     },

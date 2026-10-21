@@ -38,7 +38,15 @@ const send = () => win && !win.isDestroyed() && win.webContents.send("state", { 
 
 function settingsFor() {
   const s = store.settings();
-  return { enabled: (uid) => !s.disabled[uid], holdAfterParentStop: s.holdAfterParentStop, silenceChime: s.silenceChime };
+  return {
+    enabled: (uid) => !s.disabled[uid], holdAfterParentStop: s.holdAfterParentStop, silenceChime: s.silenceChime,
+    chimeMuted: (uid) => Boolean(s.chimeMuted[uid]),
+    setChimeMuted: (uid, muted) => {
+      const chimeMuted = { ...store.settings().chimeMuted };
+      if (muted) chimeMuted[uid] = true; else delete chimeMuted[uid];
+      store.setSettings({ chimeMuted });
+    },
+  };
 }
 
 // Keeps the computer from sleeping while autostart has a camera to watch. The screen may sleep.
@@ -126,7 +134,10 @@ const HIDDEN_TEST = TEST && process.env.BA_TEST_SHOW !== "1";
 
 function showWindow() {
   if (HIDDEN_TEST) return;
-  if (!win || win.isDestroyed()) createWindow({ show: true });
+  if (!win || win.isDestroyed()) {
+    if (quitting) return;
+    createWindow({ show: true });
+  }
   if (process.platform === "darwin") app.dock?.show();
   win.show();
   win.focus();
@@ -211,8 +222,12 @@ app.on("will-quit", () => { service?.dispose(); store?.flush(); });
 
 // Something unexpected in a timer or socket callback: log it and keep watching, rather than
 // showing an error box at 3 a.m.
-process.on("uncaughtException", (error) => store?.log("uncaught", { error: String(error?.stack ?? error).slice(0, 1_000) }));
-process.on("unhandledRejection", (error) => store?.log("unhandled", { error: String(error?.stack ?? error).slice(0, 1_000) }));
+const logCrash = (what) => (error) => {
+  const detail = { error: String(error?.stack ?? error).slice(0, 1_000) };
+  if (store) store.log(what, detail); else console.error(what, detail.error);
+};
+process.on("uncaughtException", logCrash("uncaught"));
+process.on("unhandledRejection", logCrash("unhandled"));
 app.on("window-all-closed", (event) => event.preventDefault?.());
 
 app.whenReady().then(async () => {

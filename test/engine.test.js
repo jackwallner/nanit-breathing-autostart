@@ -196,3 +196,42 @@ test("a stop the camera refuses is sent again; the chime setting applies at once
     await fake.close();
   }
 });
+
+test("a chime this app muted is turned back on after a restart, once the parent turns silencing off (2 assertions)", { timeout: 30_000 }, async () => {
+  const fake = await startFakeNanit();
+  const muted = { b1: true };
+  const settings = {
+    enabled: () => true, silenceChime: false,
+    chimeMuted: (uid) => Boolean(muted[uid]), setChimeMuted: (uid, on) => { if (on) muted[uid] = true; else delete muted[uid]; },
+  };
+  const { service } = await signedIn(fake, { settings: () => settings });
+  try {
+    await until("chime back on", () => fake.chimes.at(-1) === true);
+    await until("forgotten", () => !muted.b1);
+    assert.equal(fake.chimes.length, 1);
+    assert.deepEqual(muted, {});
+  } finally {
+    service.dispose();
+    await fake.close();
+  }
+});
+
+test("a code check still running when the parent picks a different account doesn't sign in (2 assertions)", { timeout: 30_000 }, async () => {
+  const fake = await startFakeNanit();
+  let view = null;
+  const service = createService({
+    store: { loadTokens: () => null, saveTokens: () => {}, clearTokens: () => {} }, endpoints: fake.endpoints, ffmpegBin: ffmpegPath(),
+    timing: FAST, settings: () => ({ enabled: () => true }), onUpdate: (v) => { view = v; },
+  });
+  try {
+    await service.signIn("parent@example.com", PASSWORD);
+    const checking = service.submitCode(CODE);
+    service.cancelSignIn();
+    await checking;
+    assert.equal(view.account, "signed-out");
+    assert.equal(fake.sockets.size, 0);
+  } finally {
+    service.dispose();
+    await fake.close();
+  }
+});
