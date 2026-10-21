@@ -113,6 +113,7 @@ jobs:
   # The Intel disk image, installed and driven on an Intel Mac.
   mac-intel:
     needs: mac
+    if: ${{ !failure() && !cancelled() }}
     runs-on: macos-15-intel
     steps:
       - uses: actions/checkout@v4
@@ -149,14 +150,20 @@ jobs:
         shell: pwsh
         run: |
           Start-Process -FilePath "dist\Breathing-Autostart-Setup.exe" -ArgumentList "/S" -Wait
-          $exe = Join-Path $env:LOCALAPPDATA "Programs\Breathing Autostart\Breathing Autostart.exe"
-          if (-not (Test-Path $exe)) { throw "Not installed at $exe" }
+          $found = Get-ChildItem (Join-Path $env:LOCALAPPDATA "Programs") -Recurse -Filter "Breathing Autostart.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
+          if (-not $found) { throw "Breathing Autostart.exe isn't under $env:LOCALAPPDATA\Programs" }
+          $exe = $found.FullName
+          $dir = $found.DirectoryName
+          Write-Output "Installed at $exe"
+          if (-not (Test-Path (Join-Path $dir "resources\ffmpeg\ffmpeg.exe"))) { throw "ffmpeg.exe missing from the install" }
+          $shortcut = Join-Path $env:APPDATA "Microsoft\Windows\Start Menu\Programs\Breathing Autostart.lnk"
+          if (-not (Test-Path $shortcut)) { throw "No Start menu shortcut" }
           Get-Process "Breathing Autostart" -ErrorAction SilentlyContinue | Stop-Process -Force
           $env:BA_APP = $exe
           $env:BA_SHOTS = "shots"
           npm run test:app
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          $uninstaller = Join-Path $env:LOCALAPPDATA "Programs\Breathing Autostart\Uninstall Breathing Autostart.exe"
+          $uninstaller = Join-Path $dir "Uninstall Breathing Autostart.exe"
           Start-Process -FilePath $uninstaller -ArgumentList "/S" -Wait
           Start-Sleep -Seconds 5
           if (Test-Path $exe) { throw "Uninstall left the app behind" }
