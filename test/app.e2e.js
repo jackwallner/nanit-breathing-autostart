@@ -20,8 +20,11 @@ async function shot(app, page, name) {
   if (!shots) return;
   await mkdir(shots, { recursive: true });
   await page.waitForTimeout(300);
-  const png = await app.evaluate(async ({ BrowserWindow }) => (await BrowserWindow.getAllWindows()[0].webContents.capturePage()).toPNG().toString("base64"));
-  await writeFile(path.join(shots, `${name}.png`), Buffer.from(png, "base64"));
+  // Screenshots are a by-product: some CI Macs have no GPU to capture with.
+  try {
+    const png = await app.evaluate(async ({ BrowserWindow }) => (await BrowserWindow.getAllWindows()[0].webContents.capturePage()).toPNG().toString("base64"));
+    await writeFile(path.join(shots, `${name}.png`), Buffer.from(png, "base64"));
+  } catch (error) { console.log(`No screenshot ${name}: ${error.message}`); }
 }
 
 test("a parent signs in, autostart starts and stops monitoring, settings stick, sign out clears the session", { timeout: 180_000 }, async () => {
