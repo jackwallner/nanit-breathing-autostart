@@ -12,6 +12,7 @@ export const DEFAULTS = {
   silenceChime: false,
   openAtLogin: true,
   notifyProblems: true,
+  toldAboutTray: false,
 };
 
 const LOG_MAX = 2 * 1024 * 1024;

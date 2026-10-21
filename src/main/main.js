@@ -1,5 +1,6 @@
 // Breathing Autostart's main process: one small window, a menu bar (or tray) icon, and the
 // engine running in the background for as long as the app is open.
+import { uptime } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -109,6 +110,12 @@ function createWindow({ show }) {
     event.preventDefault();
     win.hide();
     if (process.platform === "darwin") app.dock?.hide();
+    // The first time, say where the app went.
+    if (!store.settings().toldAboutTray && view.account === "signed-in" && Notification.isSupported()) {
+      store.setSettings({ toldAboutTray: true });
+      const where = process.platform === "darwin" ? "menu bar" : "system tray";
+      new Notification({ title: "Breathing Autostart is still running", body: `It keeps working in the ${where}. Click its icon to open it.` }).show();
+    }
   });
 }
 
@@ -214,7 +221,10 @@ app.whenReady().then(async () => {
   if (process.platform !== "darwin") tray.on("click", showWindow);
   refreshTray();
 
-  const atLogin = process.argv.includes("--hidden") || app.getLoginItemSettings().wasOpenedAtLogin;
+  // macOS 13 and later don't always say the app was opened at login, so a launch in the first
+  // minutes after startup counts as one too.
+  const atLogin = process.argv.includes("--hidden") || app.getLoginItemSettings().wasOpenedAtLogin
+    || (process.platform === "darwin" && store.settings().openAtLogin && uptime() < 300);
   const signedIn = Boolean(store.loadTokens());
   createWindow({ show: !(atLogin && signedIn) });
   if (((atLogin && signedIn) || HIDDEN_TEST) && process.platform === "darwin") app.dock?.hide();
