@@ -54,7 +54,7 @@ case "$TARGET" in
   *) echo "Unknown target $TARGET" >&2; exit 1 ;;
 esac
 
-make -j"$JOBS" ffmpeg >/dev/null
+make -j"$JOBS" >/dev/null
 bin=ffmpeg; [ "$TARGET" = win-x64 ] && bin=ffmpeg.exe
 cp "$bin" "$OUT/$bin"
 case "$TARGET" in
