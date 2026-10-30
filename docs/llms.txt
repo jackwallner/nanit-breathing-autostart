@@ -1,7 +1,7 @@
 # Breathing Autostart for Nanit
 
-> A free Mac and Windows app that starts Nanit Breathing Motion monitoring when your baby is put down in Breathing Wear and stops it when they're picked up. Open source.
+> A free Mac and Windows app that starts Nanit Breathing Motion monitoring when your baby is put down in Breathing Wear and stops it after. Open source.
 
 ## App
 
-- [Breathing Autostart for Nanit: Monitoring That Starts Itself](https://jackwallner.com/breathing-autostart/index.html.md): A free Mac and Windows app that starts Nanit Breathing Motion monitoring when your baby is put down in Breathing Wear and stops it when they're picked up. Open source.
+- [Breathing Autostart for Nanit: Monitoring That Starts Itself](https://jackwallner.com/breathing-autostart/index.html.md): A free Mac and Windows app that starts Nanit Breathing Motion monitoring when your baby is put down in Breathing Wear and stops it after. Open source.
